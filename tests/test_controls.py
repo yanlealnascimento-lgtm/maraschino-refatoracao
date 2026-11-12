@@ -35,3 +35,50 @@ def test_unknown_player_type(client, kodi):
     kodi.Player.GetActivePlayers.return_value = [{'type': 'picture'}]
     assert get(client, 'stop') == {'failed': True}
     assert not kodi.Player.Stop.called
+
+
+def test_volume(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'volume_75') == {'success': True}
+    kodi.Application.SetVolume.assert_called_once_with(volume=75)
+
+
+def test_volume_not_a_number(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'volume_high') == {'failed': True}
+    assert not kodi.Application.SetVolume.called
+
+
+def test_seek(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'seek_30') == {'success': True}
+    kodi.Player.Seek.assert_called_once_with(playerid=1, value=30)
+
+
+def test_next_old_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
+    assert get(client, 'next') == {'success': True}
+    kodi.Player.GoNext.assert_called_once_with(playerid=1)
+
+
+def test_next_new_kodi(client, kodi):
+    # from version 12 on it uses GoTo instead of GoNext
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
+    assert get(client, 'next') == {'success': True}
+    kodi.Player.GoTo.assert_called_once_with(playerid=1, to='next')
+
+
+def test_previous_old_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
+    assert get(client, 'previous') == {'success': True}
+    kodi.Player.GoPrevious.assert_called_once_with(playerid=1)
+
+
+def test_previous_new_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
+    assert get(client, 'previous') == {'success': True}
+    kodi.Player.GoTo.assert_called_once_with(playerid=1, to='previous')
