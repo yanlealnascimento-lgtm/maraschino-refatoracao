@@ -82,3 +82,60 @@ def test_previous_new_kodi(client, kodi):
     kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
     assert get(client, 'previous') == {'success': True}
     kodi.Player.GoTo.assert_called_once_with(playerid=1, to='previous')
+
+
+def test_shuffle_new_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
+    assert get(client, 'shuffle') == {'success': True}
+    kodi.Player.SetShuffle.assert_called_once_with(playerid=1, shuffle='toggle')
+
+
+def test_shuffle_old_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
+    kodi.Player.GetProperties.return_value = {'shuffled': False}
+    assert get(client, 'shuffle') == {'success': True}
+    kodi.Player.Shuffle.assert_called_once_with(playerid=1)
+
+
+def test_unshuffle_old_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
+    kodi.Player.GetProperties.return_value = {'shuffled': True}
+    assert get(client, 'shuffle') == {'success': True}
+    kodi.Player.UnShuffle.assert_called_once_with(playerid=1)
+
+
+def test_repeat_new_kodi(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
+    assert get(client, 'repeat') == {'success': True}
+    kodi.Player.SetRepeat.assert_called_once_with(playerid=1, repeat='cycle')
+
+
+def test_repeat_old_kodi(client, kodi):
+    # old versions: off -> one -> all -> off
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
+    kodi.Player.GetProperties.return_value = {'repeat': 'off'}
+    assert get(client, 'repeat') == {'success': True}
+    kodi.Player.Repeat.assert_called_once_with(playerid=1, state='one')
+
+
+def test_update_video_library(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'update_video') == {'success': True}
+    kodi.VideoLibrary.Scan.assert_called_once_with()
+
+
+def test_clean_audio_library(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'clean_audio') == {'success': True}
+    kodi.AudioLibrary.Clean.assert_called_once_with()
+
+
+def test_reboot(client, kodi):
+    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
+    assert get(client, 'reboot') == {'success': True}
+    kodi.System.Reboot.assert_called_once_with()
