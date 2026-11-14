@@ -1,141 +1,170 @@
 import json
 
+import pytest
 
-def get(client, command):
-    response = client.get('/xhr/controls/' + command)
+
+def set_playing(kodi, player_type):
+    kodi.Player.GetActivePlayers.return_value = [{'type': player_type}]
+
+
+def set_version(kodi, major):
+    kodi.Application.GetProperties.return_value = {'version': {'major': major}}
+
+
+def send_command(client, name):
+    response = client.get('/xhr/controls/%s' % name)
+    assert response.status_code == 200
     return json.loads(response.data)
 
 
-def test_play_pause_video(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'play_pause') == {'success': True}
+SUCCESS = {'success': True}
+FAILURE = {'failed': True}
+
+
+# Player selection
+
+def test_video_uses_player_1(client, kodi):
+    set_playing(kodi, 'video')
+    assert send_command(client, 'play_pause') == SUCCESS
     kodi.Player.PlayPause.assert_called_once_with(playerid=1)
 
 
-def test_play_pause_audio(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'audio'}]
-    assert get(client, 'play_pause') == {'success': True}
+def test_audio_uses_player_0(client, kodi):
+    set_playing(kodi, 'audio')
+    assert send_command(client, 'play_pause') == SUCCESS
     kodi.Player.PlayPause.assert_called_once_with(playerid=0)
 
 
-def test_stop(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'stop') == {'success': True}
-    kodi.Player.Stop.assert_called_once_with(playerid=1)
-
-
-def test_no_player(client, kodi):
+def test_no_active_player_fails(client, kodi):
     kodi.Player.GetActivePlayers.side_effect = Exception('no connection')
-    assert get(client, 'play_pause') == {'failed': True}
+    assert send_command(client, 'play_pause') == FAILURE
     assert not kodi.Player.PlayPause.called
 
 
-def test_unknown_player_type(client, kodi):
-    # playerid is never set for this type, so the call fails with a NameError
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'picture'}]
-    assert get(client, 'stop') == {'failed': True}
+def test_unknown_player_type_fails(client, kodi):
+    # playerid is never defined
+    set_playing(kodi, 'picture')
+    assert send_command(client, 'stop') == FAILURE
     assert not kodi.Player.Stop.called
 
 
+# Simple playback commands
+
+@pytest.mark.parametrize('name, method, arguments', [
+    ('play_pause', 'PlayPause', {}),
+    ('stop', 'Stop', {}),
+    ('fast_forward', 'SetSpeed', {'speed': 'increment'}),
+    ('rewind', 'SetSpeed', {'speed': 'decrement'}),
+])
+def test_playback_commands(client, kodi, name, method, arguments):
+    set_playing(kodi, 'video')
+    assert send_command(client, name) == SUCCESS
+    expected = dict(arguments, playerid=1)
+    getattr(kodi.Player, method).assert_called_once_with(**expected)
+
+
+# Volume and seek
+
 def test_volume(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'volume_75') == {'success': True}
+    set_playing(kodi, 'video')
+    assert send_command(client, 'volume_75') == SUCCESS
     kodi.Application.SetVolume.assert_called_once_with(volume=75)
 
 
-def test_volume_not_a_number(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'volume_high') == {'failed': True}
+def test_invalid_volume_fails(client, kodi):
+    set_playing(kodi, 'video')
+    assert send_command(client, 'volume_high') == FAILURE
     assert not kodi.Application.SetVolume.called
 
 
 def test_seek(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'seek_30') == {'success': True}
+    set_playing(kodi, 'video')
+    assert send_command(client, 'seek_30') == SUCCESS
     kodi.Player.Seek.assert_called_once_with(playerid=1, value=30)
 
 
-def test_next_old_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
-    assert get(client, 'next') == {'success': True}
-    kodi.Player.GoNext.assert_called_once_with(playerid=1)
+# Next and previous depend on the Kodi version
+
+@pytest.mark.parametrize('name, old_method, target', [
+    ('next', 'GoNext', 'next'),
+    ('previous', 'GoPrevious', 'previous'),
+])
+def test_navigation_old_kodi(client, kodi, name, old_method, target):
+    set_playing(kodi, 'video')
+    set_version(kodi, 11)
+    assert send_command(client, name) == SUCCESS
+    getattr(kodi.Player, old_method).assert_called_once_with(playerid=1)
+    assert not kodi.Player.GoTo.called
 
 
-def test_next_new_kodi(client, kodi):
-    # from version 12 on it uses GoTo instead of GoNext
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
-    assert get(client, 'next') == {'success': True}
-    kodi.Player.GoTo.assert_called_once_with(playerid=1, to='next')
+@pytest.mark.parametrize('name, old_method, target', [
+    ('next', 'GoNext', 'next'),
+    ('previous', 'GoPrevious', 'previous'),
+])
+def test_navigation_new_kodi(client, kodi, name, old_method, target):
+    set_playing(kodi, 'video')
+    set_version(kodi, 12)
+    assert send_command(client, name) == SUCCESS
+    kodi.Player.GoTo.assert_called_once_with(playerid=1, to=target)
+    assert not getattr(kodi.Player, old_method).called
 
 
-def test_previous_old_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
-    assert get(client, 'previous') == {'success': True}
-    kodi.Player.GoPrevious.assert_called_once_with(playerid=1)
-
-
-def test_previous_new_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
-    assert get(client, 'previous') == {'success': True}
-    kodi.Player.GoTo.assert_called_once_with(playerid=1, to='previous')
-
+# Shuffle
 
 def test_shuffle_new_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
-    assert get(client, 'shuffle') == {'success': True}
+    set_playing(kodi, 'video')
+    set_version(kodi, 12)
+    assert send_command(client, 'shuffle') == SUCCESS
     kodi.Player.SetShuffle.assert_called_once_with(playerid=1, shuffle='toggle')
 
 
-def test_shuffle_old_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
-    kodi.Player.GetProperties.return_value = {'shuffled': False}
-    assert get(client, 'shuffle') == {'success': True}
-    kodi.Player.Shuffle.assert_called_once_with(playerid=1)
+@pytest.mark.parametrize('shuffled, method', [
+    (True, 'UnShuffle'),
+    (False, 'Shuffle'),
+])
+def test_shuffle_old_kodi(client, kodi, shuffled, method):
+    set_playing(kodi, 'video')
+    set_version(kodi, 11)
+    kodi.Player.GetProperties.return_value = {'shuffled': shuffled}
+    assert send_command(client, 'shuffle') == SUCCESS
+    getattr(kodi.Player, method).assert_called_once_with(playerid=1)
 
 
-def test_unshuffle_old_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
-    kodi.Player.GetProperties.return_value = {'shuffled': True}
-    assert get(client, 'shuffle') == {'success': True}
-    kodi.Player.UnShuffle.assert_called_once_with(playerid=1)
-
+# Repeat
 
 def test_repeat_new_kodi(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 12}}
-    assert get(client, 'repeat') == {'success': True}
+    set_playing(kodi, 'video')
+    set_version(kodi, 12)
+    assert send_command(client, 'repeat') == SUCCESS
     kodi.Player.SetRepeat.assert_called_once_with(playerid=1, repeat='cycle')
 
 
-def test_repeat_old_kodi(client, kodi):
-    # old versions: off -> one -> all -> off
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    kodi.Application.GetProperties.return_value = {'version': {'major': 11}}
-    kodi.Player.GetProperties.return_value = {'repeat': 'off'}
-    assert get(client, 'repeat') == {'success': True}
-    kodi.Player.Repeat.assert_called_once_with(playerid=1, state='one')
+@pytest.mark.parametrize('current, next_state', [
+    ('off', 'one'),
+    ('one', 'all'),
+    ('all', 'off'),
+])
+def test_repeat_old_kodi_cycles_states(client, kodi, current, next_state):
+    set_playing(kodi, 'video')
+    set_version(kodi, 11)
+    kodi.Player.GetProperties.return_value = {'repeat': current}
+    assert send_command(client, 'repeat') == SUCCESS
+    kodi.Player.Repeat.assert_called_once_with(playerid=1, state=next_state)
 
 
-def test_update_video_library(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'update_video') == {'success': True}
-    kodi.VideoLibrary.Scan.assert_called_once_with()
+# Library and system
 
-
-def test_clean_audio_library(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'clean_audio') == {'success': True}
-    kodi.AudioLibrary.Clean.assert_called_once_with()
-
-
-def test_reboot(client, kodi):
-    kodi.Player.GetActivePlayers.return_value = [{'type': 'video'}]
-    assert get(client, 'reboot') == {'success': True}
-    kodi.System.Reboot.assert_called_once_with()
+@pytest.mark.parametrize('name, group, method', [
+    ('update_video', 'VideoLibrary', 'Scan'),
+    ('clean_video', 'VideoLibrary', 'Clean'),
+    ('update_audio', 'AudioLibrary', 'Scan'),
+    ('clean_audio', 'AudioLibrary', 'Clean'),
+    ('poweroff', 'System', 'Shutdown'),
+    ('suspend', 'System', 'Suspend'),
+    ('reboot', 'System', 'Reboot'),
+    ('pvr-scan', 'PVR', 'Scan'),
+])
+def test_library_and_system_commands(client, kodi, name, group, method):
+    set_playing(kodi, 'video')
+    assert send_command(client, name) == SUCCESS
+    getattr(getattr(kodi, group), method).assert_called_once_with()
