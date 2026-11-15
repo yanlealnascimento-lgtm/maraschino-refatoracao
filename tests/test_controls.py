@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from mock import MagicMock, patch
 
 
 def set_playing(kodi, player_type):
@@ -48,6 +49,12 @@ def test_unknown_player_type_fails(client, kodi):
     assert not kodi.Player.Stop.called
 
 
+def test_library_command_works_without_player(client, kodi):
+    kodi.Player.GetActivePlayers.side_effect = Exception('no connection')
+    assert send_command(client, 'update_video') == SUCCESS
+    kodi.VideoLibrary.Scan.assert_called_once_with()
+
+
 # Simple playback commands
 
 @pytest.mark.parametrize('name, method, arguments', [
@@ -63,6 +70,31 @@ def test_playback_commands(client, kodi, name, method, arguments):
     getattr(kodi.Player, method).assert_called_once_with(**expected)
 
 
+@pytest.mark.parametrize('name, call', [
+    ('stop', 'Player.Stop'),
+    ('next', 'Application.GetProperties'),
+    ('previous', 'Application.GetProperties'),
+    ('fast_forward', 'Player.SetSpeed'),
+    ('rewind', 'Player.SetSpeed'),
+    ('seek_30', 'Player.Seek'),
+    ('shuffle', 'Application.GetProperties'),
+    ('repeat', 'Application.GetProperties'),
+    ('update_video', 'VideoLibrary.Scan'),
+    ('clean_video', 'VideoLibrary.Clean'),
+    ('update_audio', 'AudioLibrary.Scan'),
+    ('clean_audio', 'AudioLibrary.Clean'),
+    ('poweroff', 'System.Shutdown'),
+    ('suspend', 'System.Suspend'),
+    ('reboot', 'System.Reboot'),
+    ('pvr-scan', 'PVR.Scan'),
+])
+def test_kodi_error_results_in_failure(client, kodi, name, call):
+    set_playing(kodi, 'video')
+    group, method = call.split('.')
+    getattr(getattr(kodi, group), method).side_effect = Exception('kodi error')
+    assert send_command(client, name) == FAILURE
+
+
 # Volume and seek
 
 def test_volume(client, kodi):
@@ -75,6 +107,13 @@ def test_invalid_volume_fails(client, kodi):
     set_playing(kodi, 'video')
     assert send_command(client, 'volume_high') == FAILURE
     assert not kodi.Application.SetVolume.called
+
+
+def test_any_command_containing_volume_takes_volume_branch(client, kodi):
+    # the check is a substring match and runs before the seek check
+    set_playing(kodi, 'video')
+    assert send_command(client, 'seek_volume') == FAILURE
+    assert not kodi.Player.Seek.called
 
 
 def test_seek(client, kodi):
@@ -168,3 +207,28 @@ def test_library_and_system_commands(client, kodi, name, group, method):
     set_playing(kodi, 'video')
     assert send_command(client, name) == SUCCESS
     getattr(getattr(kodi, group), method).assert_called_once_with()
+
+
+def test_unknown_command_fails(client, kodi):
+    set_playing(kodi, 'video')
+    assert send_command(client, 'dance') == FAILURE
+
+
+# Power on the machine (Wake on LAN)
+
+def test_poweron_without_mac_fails(client, kodi):
+    assert send_command(client, 'poweron') == FAILURE
+
+
+def test_poweron_sends_magic_packet(client, kodi, server_config):
+    server_config['mac_address'] = '00:11:22:aa:bb:cc'
+    sock = MagicMock()
+    with patch('modules.controls.socket.socket', return_value=sock):
+        assert send_command(client, 'poweron') == SUCCESS
+    mac = '\x00\x11\x22\xaa\xbb\xcc'
+    sock.sendto.assert_called_once_with('\xff' * 6 + mac * 16, ('255.255.255.255', 9))
+
+
+def test_poweron_with_invalid_mac_fails(client, kodi, server_config):
+    server_config['mac_address'] = 'not-a-mac'
+    assert send_command(client, 'poweron') == FAILURE

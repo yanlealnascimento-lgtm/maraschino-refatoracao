@@ -10,18 +10,28 @@ from mock import MagicMock, patch
 
 
 @pytest.fixture
-def client():
-    from Maraschino import app
-    import modules.controls
-    app.config['TESTING'] = True
+def app():
+    from Maraschino import app as flask_app
+    import modules.controls  # registers the control routes
+    flask_app.config['TESTING'] = True
+    return flask_app
+
+
+@pytest.fixture
+def client(app):
     return app.test_client()
 
 
 @pytest.fixture
-def kodi():
+def server_config():
+    return {'mac_address': None}
+
+
+@pytest.fixture
+def kodi(server_config):
     server = MagicMock()
     with patch('modules.controls.jsonrpclib.Server', return_value=server), \
             patch('modules.controls.server_api_address', return_value='http://kodi'), \
-            patch('modules.controls.server_settings', return_value={'mac_address': None}), \
+            patch('modules.controls.server_settings', return_value=server_config), \
             patch('modules.controls.logger'):
         yield server
