@@ -33,3 +33,6 @@ ehthumbs.db
 Thumbs.db
 .directory
 *~
+
+.pytest_cache/
+.coverage
