@@ -12,6 +12,17 @@ from maraschino import logger
 xbmc_error = 'There was a problem connecting to the XBMC server'
 
 
+def run_kodi_command(description, action):
+    logger.log('CONTROLS :: %s' % description, 'INFO')
+    # action is a callable so that it only runs inside the try
+    try:
+        action()
+        return 'success'
+    except:
+        logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
+        return 'failed'
+
+
 @app.route('/xhr/play/<file_type>/<media_type>/<int:media_id>')
 @requires_auth
 def xhr_play_media(file_type, media_type, media_id):
@@ -423,22 +434,12 @@ def xhr_controls(command):
         active_player = None
 
     if command == 'play_pause':
-        logger.log('CONTROLS :: Play/Pause', 'INFO')
-        try:
-            xbmc.Player.PlayPause(playerid=playerid)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Play/Pause', lambda: xbmc.Player.PlayPause(playerid=playerid))
 
     elif command == 'stop':
-        logger.log('CONTROLS :: Stop', 'INFO')
-        try:
-            xbmc.Player.Stop(playerid=playerid)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Stop', lambda: xbmc.Player.Stop(playerid=playerid))
 
     elif 'volume' in command:
         logger.log('CONTROLS :: Volume', 'INFO')
@@ -480,22 +481,14 @@ def xhr_controls(command):
             return_response = 'failed'
 
     elif command == 'fast_forward':
-        logger.log('CONTROLS :: Fast forward', 'INFO')
-        try:
-            xbmc.Player.SetSpeed(playerid=playerid, speed='increment')
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Fast forward',
+            lambda: xbmc.Player.SetSpeed(playerid=playerid, speed='increment'))
 
     elif command == 'rewind':
-        logger.log('CONTROLS :: Rewind', 'INFO')
-        try:
-            xbmc.Player.SetSpeed(playerid=playerid, speed='decrement')
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Rewind',
+            lambda: xbmc.Player.SetSpeed(playerid=playerid, speed='decrement'))
 
     elif 'seek' in command:
         logger.log('CONTROLS :: Seek', 'INFO')
@@ -554,76 +547,36 @@ def xhr_controls(command):
             return_response = 'failed'
 
     elif command == 'update_video':
-        logger.log('CONTROLS :: Updating video library', 'INFO')
-        try:
-            xbmc.VideoLibrary.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Updating video library', lambda: xbmc.VideoLibrary.Scan())
 
     elif command == 'clean_video':
-        logger.log('CONTROLS :: Cleaning video library', 'INFO')
-        try:
-            xbmc.VideoLibrary.Clean()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Cleaning video library', lambda: xbmc.VideoLibrary.Clean())
 
     elif command == 'update_audio':
-        logger.log('CONTROLS :: Updating audio library', 'INFO')
-        try:
-            xbmc.AudioLibrary.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Updating audio library', lambda: xbmc.AudioLibrary.Scan())
 
     elif command == 'clean_audio':
-        logger.log('CONTROLS :: Cleaning audio library', 'INFO')
-        try:
-            xbmc.AudioLibrary.Clean()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Cleaning audio library', lambda: xbmc.AudioLibrary.Clean())
 
     elif command == 'poweroff':
-        logger.log('CONTROLS :: Shutting down XBMC machine', 'INFO')
-        try:
-            xbmc.System.Shutdown()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Shutting down XBMC machine', lambda: xbmc.System.Shutdown())
 
     elif command == 'suspend':
-        logger.log('CONTROLS :: Suspending XBMC machine', 'INFO')
-        try:
-            xbmc.System.Suspend()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Suspending XBMC machine', lambda: xbmc.System.Suspend())
 
     elif command == 'reboot':
-        logger.log('CONTROLS :: Rebooting XBMC machine', 'INFO')
-        try:
-            xbmc.System.Reboot()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Rebooting XBMC machine', lambda: xbmc.System.Reboot())
 
     elif command == 'pvr-scan':
-        logger.log('CONTROLS :: Scanning PVR EPG', 'INFO')
-        try:
-            xbmc.PVR.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Scanning PVR EPG', lambda: xbmc.PVR.Scan())
 
     elif command == 'poweron':
         logger.log('CONTROLS :: Powering on XBMC machine', 'INFO')
