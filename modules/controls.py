@@ -23,6 +23,50 @@ def run_kodi_command(description, action):
         return 'failed'
 
 
+REPEAT_STATES = ['off', 'one', 'all']
+
+
+def kodi_version(xbmc):
+    return xbmc.Application.GetProperties(properties=['version'])['version']['major']
+
+
+def go_to(xbmc, playerid, direction):
+    # Kodi 12 replaced GoNext and GoPrevious with a single GoTo call
+    if kodi_version(xbmc) >= 12:
+        xbmc.Player.GoTo(playerid=playerid, to=direction)
+    elif direction == 'next':
+        xbmc.Player.GoNext(playerid=playerid)
+    else:
+        xbmc.Player.GoPrevious(playerid=playerid)
+
+
+def toggle_shuffle(xbmc, playerid):
+    # Kodi 12 added a toggle, before that the current state had to be read
+    if kodi_version(xbmc) > 11:
+        xbmc.Player.SetShuffle(playerid=playerid, shuffle='toggle')
+        return
+
+    shuffled = xbmc.Player.GetProperties(
+        playerid=playerid, properties=['shuffled'])['shuffled']
+
+    if shuffled:
+        xbmc.Player.UnShuffle(playerid=playerid)
+    else:
+        xbmc.Player.Shuffle(playerid=playerid)
+
+
+def cycle_repeat(xbmc, playerid):
+    # Kodi 12 added a cycle mode, before that the next state was computed
+    if kodi_version(xbmc) > 11:
+        xbmc.Player.SetRepeat(playerid=playerid, repeat='cycle')
+        return
+
+    current = xbmc.Player.GetProperties(
+        playerid=playerid, properties=['repeat'])['repeat']
+    next_state = REPEAT_STATES[(REPEAT_STATES.index(current) + 1) % len(REPEAT_STATES)]
+    xbmc.Player.Repeat(playerid=playerid, state=next_state)
+
+
 @app.route('/xhr/play/<file_type>/<media_type>/<int:media_id>')
 @requires_auth
 def xhr_play_media(file_type, media_type, media_id):
@@ -453,32 +497,12 @@ def xhr_controls(command):
             return_response = 'failed'
 
     elif command == 'next':
-        logger.log('CONTROLS :: Next', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version < 12:
-                xbmc.Player.GoNext(playerid=playerid)
-            else:
-                xbmc.Player.GoTo(playerid=playerid, to='next')
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Next', lambda: go_to(xbmc, playerid, 'next'))
 
     elif command == 'previous':
-        logger.log('CONTROLS :: Previous', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version < 12:
-                xbmc.Player.GoPrevious(playerid=playerid)
-            else:
-                xbmc.Player.GoTo(playerid=playerid, to='previous')
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Previous', lambda: go_to(xbmc, playerid, 'previous'))
 
     elif command == 'fast_forward':
         return_response = run_kodi_command(
@@ -502,49 +526,12 @@ def xhr_controls(command):
             return_response = 'failed'
 
     elif command == 'shuffle':
-        logger.log('CONTROLS :: Shuffle', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version > 11:
-                xbmc.Player.SetShuffle(playerid=playerid, shuffle='toggle')
-
-            else:
-                shuffled = xbmc.Player.GetProperties(playerid=playerid, properties=['shuffled'])['shuffled']
-                if shuffled == True:
-                    xbmc.Player.UnShuffle(playerid=playerid)
-
-                else:
-                    xbmc.Player.Shuffle(playerid=playerid)
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Shuffle', lambda: toggle_shuffle(xbmc, playerid))
 
     elif command == 'repeat':
-        logger.log('CONTROLS :: Repeat', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version > 11:
-                xbmc.Player.SetRepeat(playerid=playerid, repeat='cycle')
-
-            else:
-                states = ['off', 'one', 'all']
-                repeat = xbmc.Player.GetProperties(playerid=playerid, properties=['repeat'])['repeat']
-                state = states.index(repeat)
-
-                if state <= 1:
-                    state = state + 1
-                else:
-                    state = 0
-
-                state = states[state]
-                xbmc.Player.Repeat(playerid=playerid, state=state)
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Repeat', lambda: cycle_repeat(xbmc, playerid))
 
     elif command == 'update_video':
         return_response = run_kodi_command(
