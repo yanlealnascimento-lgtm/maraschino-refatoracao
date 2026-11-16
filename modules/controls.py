@@ -55,6 +55,45 @@ def toggle_shuffle(xbmc, playerid):
         xbmc.Player.Shuffle(playerid=playerid)
 
 
+def command_argument(command):
+    # commands carry their value after an underscore, as in volume_75
+    return int(command.split('_')[1])
+
+
+def set_volume(xbmc, command):
+    xbmc.Application.SetVolume(volume=command_argument(command))
+
+
+def seek_to(xbmc, playerid, command):
+    xbmc.Player.Seek(playerid=playerid, value=command_argument(command))
+
+
+def wake_on_lan(mac_address):
+    # the magic packet is six 0xff bytes followed by the MAC sixteen times
+    address_bytes = [int(part, 16) for part in mac_address.split(':')[:6]]
+    packet = '\xff' * 6 + struct.pack('BBBBBB', *address_bytes) * 16
+
+    connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    connection.sendto(packet, ('255.255.255.255', 9))
+
+
+def power_on(mac_address):
+    logger.log('CONTROLS :: Powering on XBMC machine', 'INFO')
+
+    if not mac_address:
+        logger.log('CONTROLS :: No XBMC machine MAC address defined', 'ERROR')
+        return 'failed'
+
+    # this one has its own error message, so it does not use run_kodi_command
+    try:
+        wake_on_lan(mac_address)
+        return 'success'
+    except:
+        logger.log('CONTROLS :: Failed to send WOL packet', 'ERROR')
+        return 'failed'
+
+
 def cycle_repeat(xbmc, playerid):
     # Kodi 12 added a cycle mode, before that the next state was computed
     if kodi_version(xbmc) > 11:
@@ -485,16 +524,10 @@ def xhr_controls(command):
         return_response = run_kodi_command(
             'Stop', lambda: xbmc.Player.Stop(playerid=playerid))
 
+    # checked before seek, so a command like seek_volume lands here
     elif 'volume' in command:
-        logger.log('CONTROLS :: Volume', 'INFO')
-        try:
-            volume = command.split('_')
-            volume = int(volume[1])
-            xbmc.Application.SetVolume(volume=volume)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Volume', lambda: set_volume(xbmc, command))
 
     elif command == 'next':
         return_response = run_kodi_command(
@@ -515,15 +548,8 @@ def xhr_controls(command):
             lambda: xbmc.Player.SetSpeed(playerid=playerid, speed='decrement'))
 
     elif 'seek' in command:
-        logger.log('CONTROLS :: Seek', 'INFO')
-        try:
-            percentage = command.split('_')
-            percentage = int(percentage[1])
-            xbmc.Player.Seek(playerid=playerid, value=percentage)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Seek', lambda: seek_to(xbmc, playerid, command))
 
     elif command == 'shuffle':
         return_response = run_kodi_command(
@@ -566,33 +592,7 @@ def xhr_controls(command):
             'Scanning PVR EPG', lambda: xbmc.PVR.Scan())
 
     elif command == 'poweron':
-        logger.log('CONTROLS :: Powering on XBMC machine', 'INFO')
-        server_macaddress = serversettings['mac_address']
-
-        if not server_macaddress:
-            logger.log('CONTROLS :: No XBMC machine MAC address defined', 'ERROR')
-            return jsonify({ 'failed': True })
-
-        else:
-            try:
-                addr_byte = server_macaddress.split(':')
-                hw_addr = struct.pack('BBBBBB',
-                int(addr_byte[0], 16),
-                int(addr_byte[1], 16),
-                int(addr_byte[2], 16),
-                int(addr_byte[3], 16),
-                int(addr_byte[4], 16),
-                int(addr_byte[5], 16))
-
-                msg = '\xff' * 6 + hw_addr * 16
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                s.sendto(msg, ("255.255.255.255", 9))
-                return_response = 'success'
-
-            except:
-                logger.log('CONTROLS :: Failed to send WOL packet', 'ERROR')
-                return_response = 'failed'
+        return_response = power_on(serversettings['mac_address'])
 
     if return_response == 'success':
         return jsonify({ 'success': True })
