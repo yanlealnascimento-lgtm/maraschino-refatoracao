@@ -12,6 +12,100 @@ from maraschino import logger
 xbmc_error = 'There was a problem connecting to the XBMC server'
 
 
+def run_kodi_command(description, action):
+    logger.log('CONTROLS :: %s' % description, 'INFO')
+    # action is a callable so that it only runs inside the try
+    try:
+        action()
+        return 'success'
+    except:
+        logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
+        return 'failed'
+
+
+REPEAT_STATES = ['off', 'one', 'all']
+
+
+def kodi_version(xbmc):
+    return xbmc.Application.GetProperties(properties=['version'])['version']['major']
+
+
+def go_to(xbmc, playerid, direction):
+    # Kodi 12 replaced GoNext and GoPrevious with a single GoTo call
+    if kodi_version(xbmc) >= 12:
+        xbmc.Player.GoTo(playerid=playerid, to=direction)
+    elif direction == 'next':
+        xbmc.Player.GoNext(playerid=playerid)
+    else:
+        xbmc.Player.GoPrevious(playerid=playerid)
+
+
+def toggle_shuffle(xbmc, playerid):
+    # Kodi 12 added a toggle, before that the current state had to be read
+    if kodi_version(xbmc) > 11:
+        xbmc.Player.SetShuffle(playerid=playerid, shuffle='toggle')
+        return
+
+    shuffled = xbmc.Player.GetProperties(
+        playerid=playerid, properties=['shuffled'])['shuffled']
+
+    if shuffled:
+        xbmc.Player.UnShuffle(playerid=playerid)
+    else:
+        xbmc.Player.Shuffle(playerid=playerid)
+
+
+def command_argument(command):
+    # commands carry their value after an underscore, as in volume_75
+    return int(command.split('_')[1])
+
+
+def set_volume(xbmc, command):
+    xbmc.Application.SetVolume(volume=command_argument(command))
+
+
+def seek_to(xbmc, playerid, command):
+    xbmc.Player.Seek(playerid=playerid, value=command_argument(command))
+
+
+def wake_on_lan(mac_address):
+    # the magic packet is six 0xff bytes followed by the MAC sixteen times
+    address_bytes = [int(part, 16) for part in mac_address.split(':')[:6]]
+    packet = '\xff' * 6 + struct.pack('BBBBBB', *address_bytes) * 16
+
+    connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    connection.sendto(packet, ('255.255.255.255', 9))
+
+
+def power_on(mac_address):
+    logger.log('CONTROLS :: Powering on XBMC machine', 'INFO')
+
+    if not mac_address:
+        logger.log('CONTROLS :: No XBMC machine MAC address defined', 'ERROR')
+        return 'failed'
+
+    # this one has its own error message, so it does not use run_kodi_command
+    try:
+        wake_on_lan(mac_address)
+        return 'success'
+    except:
+        logger.log('CONTROLS :: Failed to send WOL packet', 'ERROR')
+        return 'failed'
+
+
+def cycle_repeat(xbmc, playerid):
+    # Kodi 12 added a cycle mode, before that the next state was computed
+    if kodi_version(xbmc) > 11:
+        xbmc.Player.SetRepeat(playerid=playerid, repeat='cycle')
+        return
+
+    current = xbmc.Player.GetProperties(
+        playerid=playerid, properties=['repeat'])['repeat']
+    next_state = REPEAT_STATES[(REPEAT_STATES.index(current) + 1) % len(REPEAT_STATES)]
+    xbmc.Player.Repeat(playerid=playerid, state=next_state)
+
+
 @app.route('/xhr/play/<file_type>/<media_type>/<int:media_id>')
 @requires_auth
 def xhr_play_media(file_type, media_type, media_id):
@@ -406,6 +500,39 @@ def xhr_export_library(library, method):
         return jsonify({'failed': True})
 
 
+# single Kodi call on the active player
+PLAYER_CALLS = {
+    'play_pause': ('Play/Pause', 'Player', 'PlayPause', {}),
+    'stop': ('Stop', 'Player', 'Stop', {}),
+    'fast_forward': ('Fast forward', 'Player', 'SetSpeed', {'speed': 'increment'}),
+    'rewind': ('Rewind', 'Player', 'SetSpeed', {'speed': 'decrement'}),
+}
+
+# single Kodi call that works without an active player
+SERVER_CALLS = {
+    'update_video': ('Updating video library', 'VideoLibrary', 'Scan'),
+    'clean_video': ('Cleaning video library', 'VideoLibrary', 'Clean'),
+    'update_audio': ('Updating audio library', 'AudioLibrary', 'Scan'),
+    'clean_audio': ('Cleaning audio library', 'AudioLibrary', 'Clean'),
+    'poweroff': ('Shutting down XBMC machine', 'System', 'Shutdown'),
+    'suspend': ('Suspending XBMC machine', 'System', 'Suspend'),
+    'reboot': ('Rebooting XBMC machine', 'System', 'Reboot'),
+    'pvr-scan': ('Scanning PVR EPG', 'PVR', 'Scan'),
+}
+
+# commands with logic of their own: command -> (description, function(xbmc, playerid))
+PLAYER_COMMANDS = {
+    'next': ('Next', lambda xbmc, playerid: go_to(xbmc, playerid, 'next')),
+    'previous': ('Previous', lambda xbmc, playerid: go_to(xbmc, playerid, 'previous')),
+    'shuffle': ('Shuffle', toggle_shuffle),
+    'repeat': ('Repeat', cycle_repeat),
+}
+
+
+def kodi_call(xbmc, namespace, method):
+    return getattr(getattr(xbmc, namespace), method)
+
+
 @app.route('/xhr/controls/<command>')
 @requires_auth
 def xhr_controls(command):
@@ -422,237 +549,34 @@ def xhr_controls(command):
     except:
         active_player = None
 
-    if command == 'play_pause':
-        logger.log('CONTROLS :: Play/Pause', 'INFO')
-        try:
-            xbmc.Player.PlayPause(playerid=playerid)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+    if command in PLAYER_CALLS:
+        description, namespace, method, arguments = PLAYER_CALLS[command]
+        return_response = run_kodi_command(
+            description,
+            lambda: kodi_call(xbmc, namespace, method)(
+                playerid=playerid, **arguments))
 
-    elif command == 'stop':
-        logger.log('CONTROLS :: Stop', 'INFO')
-        try:
-            xbmc.Player.Stop(playerid=playerid)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+    elif command in SERVER_CALLS:
+        description, namespace, method = SERVER_CALLS[command]
+        return_response = run_kodi_command(
+            description, lambda: kodi_call(xbmc, namespace, method)())
 
+    elif command in PLAYER_COMMANDS:
+        description, handler = PLAYER_COMMANDS[command]
+        return_response = run_kodi_command(
+            description, lambda: handler(xbmc, playerid))
+
+    # checked before seek, so a command like seek_volume lands here
     elif 'volume' in command:
-        logger.log('CONTROLS :: Volume', 'INFO')
-        try:
-            volume = command.split('_')
-            volume = int(volume[1])
-            xbmc.Application.SetVolume(volume=volume)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'next':
-        logger.log('CONTROLS :: Next', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version < 12:
-                xbmc.Player.GoNext(playerid=playerid)
-            else:
-                xbmc.Player.GoTo(playerid=playerid, to='next')
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'previous':
-        logger.log('CONTROLS :: Previous', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version < 12:
-                xbmc.Player.GoPrevious(playerid=playerid)
-            else:
-                xbmc.Player.GoTo(playerid=playerid, to='previous')
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'fast_forward':
-        logger.log('CONTROLS :: Fast forward', 'INFO')
-        try:
-            xbmc.Player.SetSpeed(playerid=playerid, speed='increment')
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'rewind':
-        logger.log('CONTROLS :: Rewind', 'INFO')
-        try:
-            xbmc.Player.SetSpeed(playerid=playerid, speed='decrement')
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Volume', lambda: set_volume(xbmc, command))
 
     elif 'seek' in command:
-        logger.log('CONTROLS :: Seek', 'INFO')
-        try:
-            percentage = command.split('_')
-            percentage = int(percentage[1])
-            xbmc.Player.Seek(playerid=playerid, value=percentage)
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'shuffle':
-        logger.log('CONTROLS :: Shuffle', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version > 11:
-                xbmc.Player.SetShuffle(playerid=playerid, shuffle='toggle')
-
-            else:
-                shuffled = xbmc.Player.GetProperties(playerid=playerid, properties=['shuffled'])['shuffled']
-                if shuffled == True:
-                    xbmc.Player.UnShuffle(playerid=playerid)
-
-                else:
-                    xbmc.Player.Shuffle(playerid=playerid)
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'repeat':
-        logger.log('CONTROLS :: Repeat', 'INFO')
-        try:
-            version = xbmc.Application.GetProperties(properties=['version'])['version']['major']
-            if version > 11:
-                xbmc.Player.SetRepeat(playerid=playerid, repeat='cycle')
-
-            else:
-                states = ['off', 'one', 'all']
-                repeat = xbmc.Player.GetProperties(playerid=playerid, properties=['repeat'])['repeat']
-                state = states.index(repeat)
-
-                if state <= 1:
-                    state = state + 1
-                else:
-                    state = 0
-
-                state = states[state]
-                xbmc.Player.Repeat(playerid=playerid, state=state)
-
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'update_video':
-        logger.log('CONTROLS :: Updating video library', 'INFO')
-        try:
-            xbmc.VideoLibrary.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'clean_video':
-        logger.log('CONTROLS :: Cleaning video library', 'INFO')
-        try:
-            xbmc.VideoLibrary.Clean()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'update_audio':
-        logger.log('CONTROLS :: Updating audio library', 'INFO')
-        try:
-            xbmc.AudioLibrary.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'clean_audio':
-        logger.log('CONTROLS :: Cleaning audio library', 'INFO')
-        try:
-            xbmc.AudioLibrary.Clean()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'poweroff':
-        logger.log('CONTROLS :: Shutting down XBMC machine', 'INFO')
-        try:
-            xbmc.System.Shutdown()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'suspend':
-        logger.log('CONTROLS :: Suspending XBMC machine', 'INFO')
-        try:
-            xbmc.System.Suspend()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'reboot':
-        logger.log('CONTROLS :: Rebooting XBMC machine', 'INFO')
-        try:
-            xbmc.System.Reboot()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
-
-    elif command == 'pvr-scan':
-        logger.log('CONTROLS :: Scanning PVR EPG', 'INFO')
-        try:
-            xbmc.PVR.Scan()
-            return_response = 'success'
-        except:
-            logger.log('CONTROLS :: %s' % xbmc_error, 'ERROR')
-            return_response = 'failed'
+        return_response = run_kodi_command(
+            'Seek', lambda: seek_to(xbmc, playerid, command))
 
     elif command == 'poweron':
-        logger.log('CONTROLS :: Powering on XBMC machine', 'INFO')
-        server_macaddress = serversettings['mac_address']
-
-        if not server_macaddress:
-            logger.log('CONTROLS :: No XBMC machine MAC address defined', 'ERROR')
-            return jsonify({ 'failed': True })
-
-        else:
-            try:
-                addr_byte = server_macaddress.split(':')
-                hw_addr = struct.pack('BBBBBB',
-                int(addr_byte[0], 16),
-                int(addr_byte[1], 16),
-                int(addr_byte[2], 16),
-                int(addr_byte[3], 16),
-                int(addr_byte[4], 16),
-                int(addr_byte[5], 16))
-
-                msg = '\xff' * 6 + hw_addr * 16
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                s.sendto(msg, ("255.255.255.255", 9))
-                return_response = 'success'
-
-            except:
-                logger.log('CONTROLS :: Failed to send WOL packet', 'ERROR')
-                return_response = 'failed'
+        return_response = power_on(serversettings['mac_address'])
 
     if return_response == 'success':
         return jsonify({ 'success': True })
