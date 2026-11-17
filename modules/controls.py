@@ -500,6 +500,39 @@ def xhr_export_library(library, method):
         return jsonify({'failed': True})
 
 
+# single Kodi call on the active player
+PLAYER_CALLS = {
+    'play_pause': ('Play/Pause', 'Player', 'PlayPause', {}),
+    'stop': ('Stop', 'Player', 'Stop', {}),
+    'fast_forward': ('Fast forward', 'Player', 'SetSpeed', {'speed': 'increment'}),
+    'rewind': ('Rewind', 'Player', 'SetSpeed', {'speed': 'decrement'}),
+}
+
+# single Kodi call that works without an active player
+SERVER_CALLS = {
+    'update_video': ('Updating video library', 'VideoLibrary', 'Scan'),
+    'clean_video': ('Cleaning video library', 'VideoLibrary', 'Clean'),
+    'update_audio': ('Updating audio library', 'AudioLibrary', 'Scan'),
+    'clean_audio': ('Cleaning audio library', 'AudioLibrary', 'Clean'),
+    'poweroff': ('Shutting down XBMC machine', 'System', 'Shutdown'),
+    'suspend': ('Suspending XBMC machine', 'System', 'Suspend'),
+    'reboot': ('Rebooting XBMC machine', 'System', 'Reboot'),
+    'pvr-scan': ('Scanning PVR EPG', 'PVR', 'Scan'),
+}
+
+# commands with logic of their own: command -> (description, function(xbmc, playerid))
+PLAYER_COMMANDS = {
+    'next': ('Next', lambda xbmc, playerid: go_to(xbmc, playerid, 'next')),
+    'previous': ('Previous', lambda xbmc, playerid: go_to(xbmc, playerid, 'previous')),
+    'shuffle': ('Shuffle', toggle_shuffle),
+    'repeat': ('Repeat', cycle_repeat),
+}
+
+
+def kodi_call(xbmc, namespace, method):
+    return getattr(getattr(xbmc, namespace), method)
+
+
 @app.route('/xhr/controls/<command>')
 @requires_auth
 def xhr_controls(command):
@@ -516,80 +549,31 @@ def xhr_controls(command):
     except:
         active_player = None
 
-    if command == 'play_pause':
+    if command in PLAYER_CALLS:
+        description, namespace, method, arguments = PLAYER_CALLS[command]
         return_response = run_kodi_command(
-            'Play/Pause', lambda: xbmc.Player.PlayPause(playerid=playerid))
+            description,
+            lambda: kodi_call(xbmc, namespace, method)(
+                playerid=playerid, **arguments))
 
-    elif command == 'stop':
+    elif command in SERVER_CALLS:
+        description, namespace, method = SERVER_CALLS[command]
         return_response = run_kodi_command(
-            'Stop', lambda: xbmc.Player.Stop(playerid=playerid))
+            description, lambda: kodi_call(xbmc, namespace, method)())
+
+    elif command in PLAYER_COMMANDS:
+        description, handler = PLAYER_COMMANDS[command]
+        return_response = run_kodi_command(
+            description, lambda: handler(xbmc, playerid))
 
     # checked before seek, so a command like seek_volume lands here
     elif 'volume' in command:
         return_response = run_kodi_command(
             'Volume', lambda: set_volume(xbmc, command))
 
-    elif command == 'next':
-        return_response = run_kodi_command(
-            'Next', lambda: go_to(xbmc, playerid, 'next'))
-
-    elif command == 'previous':
-        return_response = run_kodi_command(
-            'Previous', lambda: go_to(xbmc, playerid, 'previous'))
-
-    elif command == 'fast_forward':
-        return_response = run_kodi_command(
-            'Fast forward',
-            lambda: xbmc.Player.SetSpeed(playerid=playerid, speed='increment'))
-
-    elif command == 'rewind':
-        return_response = run_kodi_command(
-            'Rewind',
-            lambda: xbmc.Player.SetSpeed(playerid=playerid, speed='decrement'))
-
     elif 'seek' in command:
         return_response = run_kodi_command(
             'Seek', lambda: seek_to(xbmc, playerid, command))
-
-    elif command == 'shuffle':
-        return_response = run_kodi_command(
-            'Shuffle', lambda: toggle_shuffle(xbmc, playerid))
-
-    elif command == 'repeat':
-        return_response = run_kodi_command(
-            'Repeat', lambda: cycle_repeat(xbmc, playerid))
-
-    elif command == 'update_video':
-        return_response = run_kodi_command(
-            'Updating video library', lambda: xbmc.VideoLibrary.Scan())
-
-    elif command == 'clean_video':
-        return_response = run_kodi_command(
-            'Cleaning video library', lambda: xbmc.VideoLibrary.Clean())
-
-    elif command == 'update_audio':
-        return_response = run_kodi_command(
-            'Updating audio library', lambda: xbmc.AudioLibrary.Scan())
-
-    elif command == 'clean_audio':
-        return_response = run_kodi_command(
-            'Cleaning audio library', lambda: xbmc.AudioLibrary.Clean())
-
-    elif command == 'poweroff':
-        return_response = run_kodi_command(
-            'Shutting down XBMC machine', lambda: xbmc.System.Shutdown())
-
-    elif command == 'suspend':
-        return_response = run_kodi_command(
-            'Suspending XBMC machine', lambda: xbmc.System.Suspend())
-
-    elif command == 'reboot':
-        return_response = run_kodi_command(
-            'Rebooting XBMC machine', lambda: xbmc.System.Reboot())
-
-    elif command == 'pvr-scan':
-        return_response = run_kodi_command(
-            'Scanning PVR EPG', lambda: xbmc.PVR.Scan())
 
     elif command == 'poweron':
         return_response = power_on(serversettings['mac_address'])
