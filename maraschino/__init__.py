@@ -7,7 +7,7 @@ import subprocess
 import threading
 import wsgiserver
 from Maraschino import app
-from Logger import maraschinoLogger
+from maraschino.Logger import maraschinoLogger
 from apscheduler.scheduler import Scheduler
 
 FULL_PATH = None
@@ -69,7 +69,7 @@ def initialize():
                 os.makedirs(LOG_DIR)
             except OSError:
                 if VERBOSE:
-                    print 'Unable to create the log directory.'
+                    print('Unable to create the log directory.')
 
         logger = maraschinoLogger(LOG_FILE, VERBOSE)
 
@@ -105,7 +105,7 @@ def initialize():
                         os.makedirs(dbpath)
                     except:
                         logger.log('Could not create %s.' % (DATABASE), 'CRITICAL')
-                        print 'Could not create %s.' % (DATABASE)
+                        print('Could not create %s.' % (DATABASE))
                         quit()
 
             except:
@@ -252,7 +252,7 @@ def daemonize():
         else:
             logger.log('Forking once...', 'DEBUG')
             os._exit(0)
-    except OSError, e:
+    except OSError as e:
         sys.exit('1st fork failed: %s [%d]' % (e.strerror, e.errno))
 
     os.chdir('/')
@@ -264,7 +264,7 @@ def daemonize():
         if pid > 0:
             logger.log('Forking twice...', 'DEBUG')
             os._exit(0)
-    except OSError, e:
+    except OSError as e:
         sys.exit('2nd fork failed: %s [%d]' % (e.strerror, e.errno))
 
     pid = os.getpid()

@@ -9,7 +9,7 @@ import maraschino
 from maraschino import app, logger
 from maraschino.models import Setting, XbmcServer
 from flask import send_file
-import StringIO
+import io
 import urllib
 import urllib2
 import re
@@ -227,7 +227,7 @@ def xbmc_proxy(version, label):
     elif version == 'frodo':
         url = '%s/image/image://%s' % (xbmc_url, urllib.quote(url.encode('utf-8'), ''))
 
-    img = StringIO.StringIO(urllib.urlopen(url).read())
+    img = io.BytesIO(urllib.urlopen(url).read())
     return send_file(img, mimetype='image/jpeg')
 
 
@@ -273,7 +273,7 @@ def download_image(image, file_path):
 def file_img_cache(file_path, type=None):
     if not type:
         file_path = 'http://' + file_path
-        file_path = StringIO.StringIO(urllib.urlopen(file_path).read())
+        file_path = io.BytesIO(urllib.urlopen(file_path).read())
 
     elif type == 'unix':
         file_path = '/' + file_path
