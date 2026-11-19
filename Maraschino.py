@@ -13,7 +13,7 @@ def check_frozen():
 
 def get_rundir():
     if check_frozen():
-        return os.path.abspath(unicode(sys.executable, sys.getfilesystemencoding( )))
+        return os.path.abspath(sys.executable)
 
     return os.path.abspath(__file__)[:-13]
 
@@ -22,7 +22,6 @@ rundir = get_rundir()
 
 # Include paths
 sys.path.insert(0, rundir)
-sys.path.insert(0, os.path.join(rundir, 'lib'))
 
 # Create Flask instance
 from flask import Flask

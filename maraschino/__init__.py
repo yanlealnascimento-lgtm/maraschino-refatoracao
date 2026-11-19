@@ -5,10 +5,10 @@ import sys
 import os
 import subprocess
 import threading
-import wsgiserver
+from cheroot import wsgi
 from Maraschino import app
 from maraschino.Logger import maraschinoLogger
-from apscheduler.scheduler import Scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 
 FULL_PATH = None
 RUNDIR = None
@@ -23,7 +23,7 @@ DATABASE = None
 INIT_LOCK = threading.Lock()
 __INITIALIZED__ = False
 DEVELOPMENT = False
-SCHEDULE = Scheduler()
+SCHEDULE = BackgroundScheduler()
 WEBROOT = ''
 logger = None
 SERVER = None
@@ -146,10 +146,10 @@ def initialize():
         if WEBROOT:
             if WEBROOT[0] != '/':
                 WEBROOT = '/' + WEBROOT
-            d = wsgiserver.WSGIPathInfoDispatcher({WEBROOT: app})
+            d = wsgi.PathInfoDispatcher({WEBROOT: app})
         else:
-            d = wsgiserver.WSGIPathInfoDispatcher({'/': app})
-        SERVER = wsgiserver.CherryPyWSGIServer((HOST, PORT), d)
+            d = wsgi.PathInfoDispatcher({'/': app})
+        SERVER = wsgi.Server((HOST, PORT), d)
 
         __INITIALIZED__ = True
         return True
@@ -183,7 +183,7 @@ def start_schedules():
     if UPDATER:
         # check every 6 hours for a new version
         from maraschino.updater import checkGithub
-        SCHEDULE.add_interval_job(checkGithub, hours=6)
+        SCHEDULE.add_job(checkGithub, 'interval', hours=6)
     SCHEDULE.start()
 
 
