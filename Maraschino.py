@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """This is the main executable of Maraschino. It parses the command line arguments, does init and calls the start function of Maraschino."""
 
+import importlib
 import sys
 import os
 
@@ -41,38 +42,49 @@ if check_frozen():
     app.jinja_loader = FileSystemLoader(os.path.join(rundir, 'templates'))
 
 
+# not every module has been migrated to Python 3 yet, so the ones that fail
+# to import are skipped and listed in the log instead of stopping the app
+MODULES = [
+    'modules.applications',
+    'modules.controls',
+    'modules.couchpotato',
+    'modules.currently_playing',
+    'modules.diskspace',
+    'modules.headphones',
+    'modules.index',
+    'modules.ipcamera',
+    'modules.library',
+    'modules.log',
+    'modules.nzbget',
+    'modules.recently_added',
+    'modules.remote',
+    'modules.rtorrentdl',
+    'modules.sabnzbd',
+    'modules.script_launcher',
+    'modules.search',
+    'modules.sickbeard',
+    'modules.trakt',
+    'modules.traktplus',
+    'modules.transmission',
+    'modules.updater',
+    'modules.utorrent',
+    'modules.weather',
+    'modules.xbmc_notify',
+    'mobile',
+    'xbmcmm',
+]
+
+
 def import_modules():
     """All modules that are available in Maraschino are at this point imported."""
-    import modules.applications
-    import modules.controls
-    import modules.couchpotato
-    import modules.currently_playing
-    import modules.diskspace
-    import modules.headphones
-    import modules.index
-    import modules.ipcamera
-    import modules.library
-    import modules.log
-    import modules.nzbget
-    import modules.recently_added
-    import modules.remote
-    import modules.rtorrentdl
-    import modules.sabnzbd
-    import modules.script_launcher
-    import modules.search
-    import modules.sickbeard
-    import modules.trakt
-    import modules.traktplus
-    import modules.transmission
-    import modules.updater
-    import modules.utorrent
-    import modules.weather
-    import modules.xbmc_notify
-    import mobile
-    import xbmcmm
+    from maraschino import logger
 
+    for name in MODULES:
+        try:
+            importlib.import_module(name)
+        except Exception as e:
+            logger.log('MODULES :: %s not loaded: %s' % (name, e), 'WARNING')
 
-@app.teardown_request
 def shutdown_session(exception=None):
     """This function is called as soon as a session is shutdown and makes sure, that the db session is also removed."""
     from maraschino.database import db_session

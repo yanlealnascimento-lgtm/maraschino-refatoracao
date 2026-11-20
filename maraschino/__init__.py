@@ -80,7 +80,7 @@ def initialize():
                 os.makedirs(SCRIPT_DIR)
 
         # check if database exists or create it
-        from database import init_db
+        from maraschino.database import init_db
 
         if KIOSK:
             logger.log('Running in KIOSK Mode, settings disabled.', 'INFO')
@@ -117,7 +117,7 @@ def initialize():
         init_db()
 
         # Web server settings
-        from tools import get_setting_value
+        from maraschino.tools import get_setting_value
 
         if get_setting_value('maraschino_port'):
             port_arg = False

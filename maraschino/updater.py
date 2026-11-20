@@ -4,7 +4,7 @@
 # Original code by Mikie (https://github.com/Mikie-Ghost/)
 import maraschino
 from maraschino import RUNDIR, logger, DATA_DIR
-import urllib2, tarfile, os, shutil, platform, subprocess, re
+import urllib.request, tarfile, os, shutil, platform, subprocess, re
 from flask import json
 
 # define master repo as user and branch in github repo
@@ -27,14 +27,14 @@ def writeVersion(hash):
 def latestCommit():
     """Get SHA hash from latest commit"""
     url = 'https://api.github.com/repos/%s/maraschino/commits/%s' % (user, branch)
-    result = urllib2.urlopen(url).read()
+    result = urllib.request.urlopen(url).read()
     git = json.JSONDecoder().decode(result)
     return git['sha']
 
 def commitsBehind():
     """Calculate how many commits are missing"""
     url = 'https://api.github.com/repos/%s/maraschino/compare/%s...%s' % (user, maraschino.CURRENT_COMMIT, maraschino.LATEST_COMMIT)
-    result = urllib2.urlopen(url).read()
+    result = urllib.request.urlopen(url).read()
     git = json.JSONDecoder().decode(result)
     return git['total_commits']
 
@@ -109,7 +109,7 @@ def Update():
     # Download repo
     try:
         logger.log('UPDATER :: Downloading update file to %s' % tar_file, 'DEBUG')
-        url = urllib2.urlopen('https://github.com/%s/maraschino/tarball/%s' % (user, branch))
+        url = urllib.request.urlopen('https://github.com/%s/maraschino/tarball/%s' % (user, branch))
         f = open(tar_file,'wb')
         f.write(url.read())
         f.close()
