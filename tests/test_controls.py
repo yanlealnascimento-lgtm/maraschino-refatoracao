@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 def set_playing(kodi, player_type):
@@ -225,8 +225,8 @@ def test_poweron_sends_magic_packet(client, kodi, server_config):
     sock = MagicMock()
     with patch('modules.controls.socket.socket', return_value=sock):
         assert send_command(client, 'poweron') == SUCCESS
-    mac = '\x00\x11\x22\xaa\xbb\xcc'
-    sock.sendto.assert_called_once_with('\xff' * 6 + mac * 16, ('255.255.255.255', 9))
+    mac = b'\x00\x11\x22\xaa\xbb\xcc'
+    sock.sendto.assert_called_once_with(b'\xff' * 6 + mac * 16, ('255.255.255.255', 9))
 
 
 def test_poweron_with_invalid_mac_fails(client, kodi, server_config):

@@ -5,10 +5,10 @@ import sys
 import os
 import subprocess
 import threading
-import wsgiserver
+from cheroot import wsgi
 from Maraschino import app
-from Logger import maraschinoLogger
-from apscheduler.scheduler import Scheduler
+from maraschino.Logger import maraschinoLogger
+from apscheduler.schedulers.background import BackgroundScheduler
 
 FULL_PATH = None
 RUNDIR = None
@@ -23,7 +23,7 @@ DATABASE = None
 INIT_LOCK = threading.Lock()
 __INITIALIZED__ = False
 DEVELOPMENT = False
-SCHEDULE = Scheduler()
+SCHEDULE = BackgroundScheduler()
 WEBROOT = ''
 logger = None
 SERVER = None
@@ -69,7 +69,7 @@ def initialize():
                 os.makedirs(LOG_DIR)
             except OSError:
                 if VERBOSE:
-                    print 'Unable to create the log directory.'
+                    print('Unable to create the log directory.')
 
         logger = maraschinoLogger(LOG_FILE, VERBOSE)
 
@@ -80,7 +80,7 @@ def initialize():
                 os.makedirs(SCRIPT_DIR)
 
         # check if database exists or create it
-        from database import init_db
+        from maraschino.database import init_db
 
         if KIOSK:
             logger.log('Running in KIOSK Mode, settings disabled.', 'INFO')
@@ -105,7 +105,7 @@ def initialize():
                         os.makedirs(dbpath)
                     except:
                         logger.log('Could not create %s.' % (DATABASE), 'CRITICAL')
-                        print 'Could not create %s.' % (DATABASE)
+                        print('Could not create %s.' % (DATABASE))
                         quit()
 
             except:
@@ -117,7 +117,7 @@ def initialize():
         init_db()
 
         # Web server settings
-        from tools import get_setting_value
+        from maraschino.tools import get_setting_value
 
         if get_setting_value('maraschino_port'):
             port_arg = False
@@ -146,10 +146,10 @@ def initialize():
         if WEBROOT:
             if WEBROOT[0] != '/':
                 WEBROOT = '/' + WEBROOT
-            d = wsgiserver.WSGIPathInfoDispatcher({WEBROOT: app})
+            d = wsgi.PathInfoDispatcher({WEBROOT: app})
         else:
-            d = wsgiserver.WSGIPathInfoDispatcher({'/': app})
-        SERVER = wsgiserver.CherryPyWSGIServer((HOST, PORT), d)
+            d = wsgi.PathInfoDispatcher({'/': app})
+        SERVER = wsgi.Server((HOST, PORT), d)
 
         __INITIALIZED__ = True
         return True
@@ -183,7 +183,7 @@ def start_schedules():
     if UPDATER:
         # check every 6 hours for a new version
         from maraschino.updater import checkGithub
-        SCHEDULE.add_interval_job(checkGithub, hours=6)
+        SCHEDULE.add_job(checkGithub, 'interval', hours=6)
     SCHEDULE.start()
 
 
@@ -252,7 +252,7 @@ def daemonize():
         else:
             logger.log('Forking once...', 'DEBUG')
             os._exit(0)
-    except OSError, e:
+    except OSError as e:
         sys.exit('1st fork failed: %s [%d]' % (e.strerror, e.errno))
 
     os.chdir('/')
@@ -264,7 +264,7 @@ def daemonize():
         if pid > 0:
             logger.log('Forking twice...', 'DEBUG')
             os._exit(0)
-    except OSError, e:
+    except OSError as e:
         sys.exit('2nd fork failed: %s [%d]' % (e.strerror, e.errno))
 
     pid = os.getpid()

@@ -2,7 +2,7 @@ from flask import jsonify
 import jsonrpclib
 import socket
 import struct
-import urllib
+import urllib.parse
 
 from Maraschino import app
 from maraschino.noneditable import *
@@ -71,7 +71,7 @@ def seek_to(xbmc, playerid, command):
 def wake_on_lan(mac_address):
     # the magic packet is six 0xff bytes followed by the MAC sixteen times
     address_bytes = [int(part, 16) for part in mac_address.split(':')[:6]]
-    packet = '\xff' * 6 + struct.pack('BBBBBB', *address_bytes) * 16
+    packet = b'\xff' * 6 + struct.pack('BBBBBB', *address_bytes) * 16
 
     connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     connection.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -341,7 +341,7 @@ def xhr_play_file(file_type):
         return jsonify({ 'failed': True })
 
     file = request.form['file']
-    file = urllib.unquote(file.encode('ascii')).decode('utf-8')
+    file = urllib.parse.unquote(file)
 
     if file_type == "video":
         player = 1
@@ -372,7 +372,7 @@ def xhr_enqueue_file(file_type):
     xbmc = jsonrpclib.Server(server_api_address())
 
     file = request.form['file']
-    file = urllib.unquote(file.encode('ascii')).decode('utf-8')
+    file = urllib.parse.unquote(file)
 
     if file_type == "video":
         player = 1
@@ -485,7 +485,7 @@ def xhr_export_library(library, method):
             params['options'][item] = True
     else:
         path = request.form['path']
-        path = urllib.unquote(path.encode('ascii')).decode('utf-8')
+        path = urllib.parse.unquote(path)
         params['options']['path'] = path
 
     try:

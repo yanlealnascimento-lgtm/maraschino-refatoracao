@@ -9,9 +9,9 @@ import maraschino
 from maraschino import app, logger
 from maraschino.models import Setting, XbmcServer
 from flask import send_file
-import StringIO
-import urllib
-import urllib2
+import io
+import urllib.parse
+import urllib.request
 import re
 
 def check_auth(username, password):
@@ -188,7 +188,7 @@ def xbmc_image(url, label='default'):
 
     elif url.startswith('image://'): #frodo
         url = url[len('image://'):]
-        url = urllib.quote(url.encode('utf-8'), '')
+        url = urllib.parse.quote(url.encode('utf-8'), '')
 
         return '%s/xhr/xbmc_image/%s/frodo/?path=%s' % (maraschino.WEBROOT, label, url)
     else:
@@ -225,9 +225,9 @@ def xbmc_proxy(version, label):
     if version == 'eden':
         url = '%s/vfs/special://%s' % (xbmc_url, url)
     elif version == 'frodo':
-        url = '%s/image/image://%s' % (xbmc_url, urllib.quote(url.encode('utf-8'), ''))
+        url = '%s/image/image://%s' % (xbmc_url, urllib.parse.quote(url.encode('utf-8'), ''))
 
-    img = StringIO.StringIO(urllib.urlopen(url).read())
+    img = io.BytesIO(urllib.request.urlopen(url).read())
     return send_file(img, mimetype='image/jpeg')
 
 
@@ -250,8 +250,8 @@ def download_image(image, file_path):
         logger.log('Downloading %s' % image, 'INFO')
 
         headers = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/29.0.1547.65 Safari/537.36' }
-        request = urllib2.Request(image, None, headers)
-        image_on_web = urllib2.urlopen(request, None)
+        request = urllib.request.Request(image, None, headers)
+        image_on_web = urllib.request.urlopen(request, None)
         while True:
             buf = image_on_web.read(65536)
             if len(buf) == 0:
@@ -273,7 +273,7 @@ def download_image(image, file_path):
 def file_img_cache(file_path, type=None):
     if not type:
         file_path = 'http://' + file_path
-        file_path = StringIO.StringIO(urllib.urlopen(file_path).read())
+        file_path = io.BytesIO(urllib.request.urlopen(file_path).read())
 
     elif type == 'unix':
         file_path = '/' + file_path
